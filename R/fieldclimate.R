@@ -2,11 +2,11 @@
 #' @rdname fc_request
 #' @param method request method
 #' @param path request path (required)
-#' @param public_key public key. Read by default from env variable `FC_PUBLIC_KEY`
-#' @param private_key private key. Read by default from env variable `FC_PRIVATE_KEY`
-#' @importFrom lubridate now
-#' @importFrom digest hmac
-#' @importFrom httr add_headers
+#' @param public_key public key.
+#'  Read by default from env variable `FC_PUBLIC_KEY`
+#' @param private_key private key.
+#'  Read by default from env variable `FC_PRIVATE_KEY`
+#' @return an object of type "request" as returned by [httr::add_headers()].
 #' @seealso https://api.fieldclimate.com/v2/docs/#authentication-hmac
 #' @export
 #' @examples
@@ -20,15 +20,15 @@ fc_headers <- function(method = c("GET", "PUT", "POST", "DELETE"),
   stopifnot(!is.null(private_key))
 
   if (nchar(public_key) == 0)
-    stop("public_key is empty. Is the environment variable 'FC_PUBLIC_KEY' set?")
+    stop("public_key missing. Is the environment variable 'FC_PUBLIC_KEY' set?")
 
   if (nchar(private_key) == 0)
-    stop("private_key is empty. Is the environment variable 'FC_PUBLIC_KEY' set?")
+    stop("private_key missing.Is the environment variable 'FC_PUBLIC_KEY' set?")
 
   stopifnot(!is.null(path))
   method <- match.arg(method)
 
-  date <- format(lubridate::now("GMT"), format = '%a, %d %b %Y %H:%M:%S GMT')
+  date <- format(lubridate::now("GMT"), format = "%a, %d %b %Y %H:%M:%S GMT")
   msg <- paste0(method, path, date, public_key)
   signature <- digest::hmac(key = private_key, object = msg, algo = "sha256")
   auth <- paste0("hmac ", public_key, ":", signature)
@@ -41,9 +41,9 @@ fc_headers <- function(method = c("GET", "PUT", "POST", "DELETE"),
 #' @param body request body named list. Will be passed to [httr::VERB()] and
 #'   form-encoded.
 #' @param verbose logical, should the request be printed?
+#' @param timeout number of seconds to wait for a response before giving up.
+#' @return a list with the parsed response.
 #' @description authentication is done via hmac, see [fc_headers()].
-#' @importFrom httr modify_url VERB content http_error status_code
-#' @importFrom jsonlite fromJSON
 #' @export
 #' @examples
 #' \dontrun{
@@ -54,7 +54,8 @@ fc_request <- function(method = c("GET", "PUT", "POST", "DELETE"),
     body = NULL,
     public_key = Sys.getenv("FC_PUBLIC_KEY"),
     private_key = Sys.getenv("FC_PRIVATE_KEY"),
-    verbose = FALSE) {
+    verbose = FALSE,
+    timeout = 10) {
 
   stopifnot(!is.null(path))
   method <- match.arg(method)
@@ -66,8 +67,14 @@ fc_request <- function(method = c("GET", "PUT", "POST", "DELETE"),
     private_key = private_key)
   if (verbose)
     message(method, " ", qurl)
-  resp <- httr::VERB(verb = method, url = qurl, headers, body = body,
-                     encode = "form")
+  resp <- try(httr::VERB(verb = method, url = qurl, headers, body = body,
+                     encode = "form", httr::timeout(timeout)))
+
+  if (inherits(resp, "try-error")) {
+    warning("API-Error: ",  attr(resp, "condition")$message)
+    return(NULL)
+  }
+
 
   if (httr::status_code(resp) == 204) {
     warning("No data for specified time period.")
@@ -92,3 +99,22 @@ fc_request <- function(method = c("GET", "PUT", "POST", "DELETE"),
   return(parsed)
 }
 
+#' Ping fieldclimate API
+#' @param timeout number of seconds to wait for a response before giving up.
+#' @return a logical whether the API is reachable or not.
+#' @export
+#' @examples
+#' \dontrun{
+#' fc_ping()
+#' }
+fc_ping <- function(timeout = 2) {
+  api <- "https://api.fieldclimate.com/v2"
+  resp <- try(httr::GET(url = api, httr::timeout(timeout)))
+
+  if (inherits(resp, "try-error")) {
+    message("API-Error: ",  attr(resp, "condition")$message)
+    return(FALSE)
+  }
+
+  return(TRUE)
+}
